@@ -9,6 +9,7 @@ class Canvas
     @lines = (@h/2).times.map do
       rand(2..40).times.map{rand(33..126).chr}.join
     end
+    @focus_line = rand(@lines.size)
   end
 
   def clear
@@ -17,23 +18,40 @@ class Canvas
   end
 
   def show
-    line_color = 28
-    @lines.each_with_index do |line, y|
-      colors[y].fill(line_color, 0, line.size)
-    end
-
     output = +''
     @h.times do |y|
       color = nil
-      output << "\e[48;5;#{16+36*5+6*5+4}m"
+      default_background = 16+36*5+6*5+4
+      text_color = 16+36*0+6*2+0
       line = @lines[y]
-      @w.times do |x|
+      if y == @focus_line
+        default_background = 16+36*5+6*4+2
+        line = "#{line}🍊"
+        text_color = "#{16+36*0+6*1+0};1"
+      end
+      background = default_background
+      output << "\e[48;5;#{background}m"
+      x = 0
+      while x < @w do
         m = @masks[y][x] || 0
+        t = line&.[](x)
+        tlen = t.ascii_only? ? 1 : 2 if t
         c = @colors[y][x]
+        bg = default_background
+        if t && x + tlen <= @w
+          bg = m == 0 ? default_background : c || default_background
+          c = text_color
+          x += tlen
+        else
+          x += 1
+        end
         if color != c
           output << "\e[38;5;#{color = c}m"
         end
-        output << (line&.[](x) || CHARS[m])
+        if background != bg
+          output << "\e[48;5;#{background = bg}m"
+        end
+        output << (t || CHARS[m])
       end
       output << "\e[m\n"
     end
@@ -67,13 +85,13 @@ class Canvas
 end
 
 canvas = Canvas.new(100, 50)
-params = 5.times.map do
+params = 100.times.map do |i|
   bi = rand(0.02..0.05)
   bo = rand(0.05..0.1)
   bm = bo * rand(1.0..2.0)
   {
-    cx: rand(100),
-    cy: rand(50),
+    cx: rand,
+    cy: 15 * i + rand(10),
     segments: rand(7..9),
     theta: 2 * Math::PI * rand,
     rot: (0.02 + 0.04 * rand) * (rand > 0.5 ? 1 : -1),
@@ -88,7 +106,7 @@ end
   params.each do |param|
     param in { cx:, cy:, segments:, theta:, rot:, bo:, bi:, bm:, radius:, color: }
     theta += t * rot
-    canvas.draw(cx, cy, radius+0.5, color){|x,y|
+    canvas.draw(canvas.w*(1+cx)/2.0, cy, radius+0.5, color){|x,y|
       z = x+y.i
       a = z.arg
       a2 = ((a-theta)/2/Math::PI*segments).round*2*Math::PI/segments+theta
