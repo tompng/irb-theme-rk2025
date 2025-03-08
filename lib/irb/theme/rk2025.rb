@@ -1,5 +1,5 @@
 require 'reline'
-module IRBMikan
+module IRB2025Mikan
   class Canvas
     CHARS = ' ▘▝▀▖▌▞▛▗▚▐▜▄▙▟█'
     attr_reader :w, :h, :masks, :colors
@@ -172,4 +172,4 @@ module IRBMikan
   end
 end
 
-binding.irb
+IRB2025Mikan.start
