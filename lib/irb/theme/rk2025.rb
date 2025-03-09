@@ -35,31 +35,41 @@ module IRB2025Mikan
         output = +''
         background = color = nil
         x = 0
+        chars = line ? line.grapheme_clusters.flat_map { |c|
+          case Reline::Unicode.get_mbchar_width(c)
+          when 2
+            [[c, 2], :skip]
+          when 1
+            [[c, 1]]
+          else
+            []
+          end
+        } : []
         while x < @w do
           m = @masks[y][x] || 0
-          t = line&.[](x)
-          t = nil if t == ' '
-          if t
-            w = Reline::Unicode.get_mbchar_width(t)
-            line = "\0" + line if w == 2
-            tlen = w
+          c, cw = chars[x]
+          if c == :skip
+            x += 1
+            next
           end
-          c = @colors[y][x]
+          c = nil if c == ' '
+
+          col = @colors[y][x]
           bg = default_background
-          if t && x + tlen <= @w
-            bg = m == 0 ? default_background : c || default_background
-            c = text_color
-            x += tlen
+          if c && x + cw <= @w
+            bg = m == 0 ? default_background : col || default_background
+            col = text_color
+            x += cw
           else
             x += 1
           end
-          if color != c
-            output << "\e[38;5;#{color = c}m"
+          if color != col
+            output << "\e[38;5;#{color = col}m"
           end
           if background != bg
             output << "\e[48;5;#{background = bg}m"
           end
-          output << (t || CHARS[m])
+          output << (c || CHARS[m])
         end
         output << "\e[m"
         output_lines << output
@@ -93,34 +103,42 @@ module IRB2025Mikan
     end
   end
 
-  prev_color = nil
-  PARAMS = 100.times.map do |i|
-    bi = rand(0.02..0.05)
-    bo = rand(0.05..0.1)
-    bm = bo * rand(1.0..2.0)
-    color = prev_color
-    color = 16+36*5+6*rand(3..5)+rand(1..2) while color == prev_color
-    prev_color = color
-    {
-      cx: rand,
-      cy: 15 * i + rand(10),
-      segments: rand(7..9),
-      theta: 2 * Math::PI * rand,
-      rot: (0.2 + 0.4 * rand) * (rand > 0.5 ? 1 : -1),
-      bi:, bm:, bo:,
-      radius: rand(12..24),
-      color:
-    }
+  def self.params
+    prev_color = nil
+    @params ||= 100.times.map do |i|
+      bi = rand(0.02..0.05)
+      bo = rand(0.05..0.1)
+      bm = bo * rand(1.0..2.0)
+      color = prev_color
+      color = 16+36*5+6*rand(3..5)+rand(1..2) while color == prev_color
+      prev_color = color
+      {
+        cx: rand,
+        cy: 15 * i + rand(10),
+        segments: rand(7..9),
+        theta: 2 * Math::PI * rand,
+        rot: (0.2 + 0.4 * rand) * (rand > 0.5 ? 1 : -1),
+        bi:, bm:, bo:,
+        radius: rand(12..24),
+        color:
+      }
+    end
+  end
+
+  def self.reset_params
+    @params = nil
   end
 
   def self.start
     Reline::LineEditor.prepend Module.new {
       def colorize_completion_dialog
         dialog = @dialogs[0]
-        return unless dialog&.contents
+        unless dialog&.contents
+          IRB2025Mikan.reset_params
+          return
+        end
 
         canvas = Canvas.new(dialog.width, dialog.contents.size)
-        y = dialog.scroll_top
         face = Reline::Face[:completion_dialog]
         time = Time.now.to_f
         original_contents = dialog.contents.instance_eval { @original ||= dup }
@@ -129,11 +147,10 @@ module IRB2025Mikan
           line.gsub(/\e\[[\d;]*m/, '')
         end
         canvas.lines = uncolored_lines
-        t = Time.now.to_f
-        PARAMS.each do |param|
+        IRB2025Mikan.params.each do |param|
           param in { cx:, cy:, segments:, theta:, rot:, bo:, bi:, bm:, radius:, color: }
           cy = (cy - dialog.scroll_top) % 1500 - 100
-          theta += t * rot
+          theta += time * rot
           canvas.draw(5 + (canvas.w - 5)*cx, cy, radius+0.5, color){|x,y|
             z = x+y.i
             a = z.arg
